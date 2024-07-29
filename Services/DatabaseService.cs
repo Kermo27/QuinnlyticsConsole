@@ -54,4 +54,24 @@ public class DatabaseService
 
         return roleStats;
     }
+
+    public async Task<Dictionary<string, double>> GetRolePercentageAsync(string gameVersion)
+    {
+        var matches = await _context.Matches
+            .Where(m => m.GameVersion.StartsWith(gameVersion))
+            .ToListAsync();
+
+        var totalMatches = matches.Count;
+
+        var rolePercentages = matches
+            .GroupBy(m => m.Role)
+            .Select(g => new
+            {
+                Role = g.Key,
+                Percentage = (double)g.Count() / totalMatches
+            })
+            .ToDictionary(x => x.Role, x => x.Percentage);
+
+        return rolePercentages;
+    }
 }

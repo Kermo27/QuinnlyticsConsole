@@ -6,7 +6,6 @@ public class Match
     public string MatchId { get; set; }
     public string Role { get; set; }
     public bool Win { get; set; }
-    public string Build { get; set; }
     public string Opponent { get; set; }
     public string SummonerSpells { get; set; }
     public string Champion { get; set; }
@@ -22,4 +21,17 @@ public class Match
     public int WSkillUsage { get; set; }
     public int ESkillUsage { get; set; }
     public int RSkillUsage { get; set; }
+    public int? AllInPings { get; set; } // Yellow crossed swords
+    public int? AssistMePings { get; set; } // Green flag
+    public int? CommandPings { get; set; } // Blue generic ping (ALT+click)
+    public int? EnemyMissingPings { get; set; } // Yellow questionamark
+    public int? EnemyVisionPings { get; set; } // Red eyeball
+    public int? GetBackPings { get; set; } // Yellow circle with horizontal line
+    public int? NeedVisionPings { get; set; } // Green ward
+    public int? OnMyWayPings { get; set; } // Blue arrow pointing at ground
+    public int? PushPings { get; set; } // Green minion
+    public int GoldEarned { get; set; }
+    public int GoldSpent { get; set; }
+    
+    
 }
