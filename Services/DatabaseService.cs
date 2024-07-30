@@ -13,10 +13,47 @@ public class DatabaseService
         _context.Database.EnsureCreated();
     }
 
+    public async Task<GameVersion> GetCurrentGameVersionAsync()
+    {
+        return await _context.GameVersions.FirstOrDefaultAsync();
+    }
+    
+    public async Task SaveOrUpdateGameVersionAsync(GameVersion gameVersion)
+    {
+        _context.GameVersions.Add(gameVersion);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task UpdateGameVersionAsync(GameVersion gameVersion)
+    {
+        _context.GameVersions.Update(gameVersion);
+        await _context.SaveChangesAsync();
+    }
+
     public async Task SaveMatchAsync(Match match)
     {
         _context.Matches.Add(match);
         await _context.SaveChangesAsync();
+    }
+
+    public async Task SaveItemsAsync(IEnumerable<Item> items)
+    {
+        var existingItems = _context.Items.ToList();
+        var newItems = items.Where(i => !existingItems.Any(e => e.Id == i.Id)).ToList();
+        
+        _context.Items.AddRange(newItems);
+        await _context.SaveChangesAsync();
+    }
+
+    public Task UpdateItemsAsync(Item item)
+    {
+        _context.Update(item);
+        return Task.CompletedTask;
+    }
+    
+    public async Task<Item> GetItemByIdAsync(string id)
+    {
+        return await _context.Items.FirstOrDefaultAsync(i => i.Id == id);
     }
 
     public async Task<bool> IsMatchInDatabaseAsync(string matchId)

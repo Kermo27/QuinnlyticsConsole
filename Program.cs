@@ -4,6 +4,12 @@ const string apiKey = "RGAPI-24bffdb3-2ad7-4c70-8b38-e2e2c2ac44d2";
 const string gameName = "Кермо";
 const string tagLine = "AIBOT";
 
+var exceptions = new HashSet<string>
+{
+    "3006",
+    "3010"
+};
+
 var riotApiService = new RiotApiService(apiKey);
 await riotApiService.InitializeAsync();
 
@@ -15,6 +21,8 @@ var databaseService = new DatabaseService();
 var runeDict = await riotApiService.GetRunesReforgedAsync();
 
 var latestVersion = await riotApiService.GetCurrentGameVersionShortAsync();
+
+await riotApiService.RefreshItemsIfVersionChangedAsync(databaseService, exceptions);
 
 foreach (var matchId in matchIds)
 {

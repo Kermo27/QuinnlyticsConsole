@@ -1,6 +1,7 @@
 ﻿using Camille.Enums;
 using Newtonsoft.Json;
 using Camille.RiotGames;
+using Newtonsoft.Json.Linq;
 using QuinnlyticsConsole.Models;
 
 namespace QuinnlyticsConsole.Services;
@@ -9,7 +10,7 @@ public class RiotApiService
 {
     private readonly RiotGamesApi _riotGamesApi;
     private readonly string _apiKey;
-    private string _currentGameVersion;
+    private string? _currentGameVersion;
 
     private const RegionalRoute Region = RegionalRoute.EUROPE;
 
@@ -24,12 +25,12 @@ public class RiotApiService
         _currentGameVersion = await GetCurrentGameVersionLongAsync();
     }
 
-    public async Task<string> GetCurrentGameVersionLongAsync()
+    public async Task<string?> GetCurrentGameVersionLongAsync()
     {
         var url = "https://ddragon.leagueoflegends.com/api/versions.json";
         using var httpClient = new HttpClient();
         var response = await httpClient.GetStringAsync(url);
-        var versions = JsonConvert.DeserializeObject<string[]>(response);
+        string?[]? versions = JsonConvert.DeserializeObject<string[]>(response);
         return versions[0];
     }
     
@@ -52,8 +53,7 @@ public class RiotApiService
         return runes.SelectMany(r => r.Slots.SelectMany(s => s.Runes))
             .ToDictionary(r => r.Id);
     }
-
-
+    
     public async Task<Match> GetMatchAsync(string matchId, Dictionary<int, Rune> runeDictionary, string playerUniqueId)
     {
         var match = await _riotGamesApi.MatchV5().GetMatchAsync(Region, matchId);
@@ -68,6 +68,7 @@ public class RiotApiService
 
         var matchEntity = new Match
         {
+            MatchDate = match.Info.GameCreation,
             MatchId = matchId,
             Role = player.TeamPosition == "UTILITY" ? "SUPPORT" : player.TeamPosition,
             Win = player.Win,
@@ -105,12 +106,11 @@ public class RiotApiService
     
     public async Task<string> GetSummonerPuuidAsync(string gameName, string tagLine)
     {
-        var region = Camille.Enums.RegionalRoute.EUROPE;
-        var summoner = await _riotGamesApi.AccountV1().GetByRiotIdAsync(region, gameName, tagLine);
+        var summoner = await _riotGamesApi.AccountV1().GetByRiotIdAsync(Region, gameName, tagLine);
         return summoner.Puuid;
     }
 
-    public async Task<List<string>> GetMatchIdsByPuuidAsync(string puuid, int count = 35)
+    public async Task<List<string>> GetMatchIdsByPuuidAsync(string puuid, int count = 50)
     {
         var matchIds = await _riotGamesApi.MatchV5().GetMatchIdsByPUUIDAsync(Region, puuid, count: count);
         var draftMatchIds = new List<string>();
@@ -125,5 +125,75 @@ public class RiotApiService
         }
 
         return draftMatchIds;
+    }
+
+    public async Task FetchAndSaveItemsAsync(DatabaseService databaseService, HashSet<string> exceptions)
+    {
+        var itemUrl = $"https://ddragon.leagueoflegends.com/cdn/{_currentGameVersion}/data/en_US/item.json";
+        using var httpClient = new HttpClient();
+        var response = await httpClient.GetStringAsync(itemUrl);
+        var itemData = JsonConvert.DeserializeObject<JObject>(response);
+        
+        var itemsToSave = new List<Item>();
+
+        foreach (var item in itemData["data"].Children<JProperty>())
+        {
+            var itemId = item.Name;
+            var itemDetails = item.Value;
+
+            if (itemData != null)
+            {
+                var itemName = (string)itemDetails["name"];
+                var intoArray = itemDetails["into"] as JArray;
+
+                bool shouldExclude = intoArray != null && intoArray.Count > 0 && !exceptions.Contains(itemId);
+
+                if (!shouldExclude)
+                {
+                    var existingItem = await databaseService.GetItemByIdAsync(itemId);
+                    if (existingItem != null)
+                    {
+                        existingItem.Name = itemName;
+                        await databaseService.UpdateItemsAsync(existingItem);
+                    }
+                    else
+                    {
+                        itemsToSave.Add(new Item
+                        {
+                            Id = itemId,
+                            Name = itemName
+                        });
+                    }
+                }
+            }
+        }
+
+        if (itemsToSave.Any())
+        {
+            await databaseService.SaveItemsAsync(itemsToSave);
+        }
+    }
+
+    public async Task RefreshItemsIfVersionChangedAsync(DatabaseService dbService, HashSet<string> excludeItems)
+    {
+        var currentVersion = await GetCurrentGameVersionLongAsync();
+
+        var gameVersionInDb = await dbService.GetCurrentGameVersionAsync();
+
+        if (gameVersionInDb == null || gameVersionInDb.Version != currentVersion)
+        {
+            if (gameVersionInDb == null)
+            {
+                gameVersionInDb = new GameVersion { Version = currentVersion };
+                await dbService.SaveOrUpdateGameVersionAsync(gameVersionInDb);
+            }
+            else
+            {
+                gameVersionInDb.Version = currentVersion;
+                await dbService.UpdateGameVersionAsync(gameVersionInDb);
+            }
+
+            await FetchAndSaveItemsAsync(dbService, excludeItems);
+        }
     }
 }
