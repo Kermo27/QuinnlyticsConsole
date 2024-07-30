@@ -51,7 +51,7 @@ public class DatabaseService
         return Task.CompletedTask;
     }
     
-    public async Task<Item> GetItemByIdAsync(string id)
+    public async Task<Item> GetItemByIdAsync(int id)
     {
         return await _context.Items.FirstOrDefaultAsync(i => i.Id == id);
     }
@@ -110,5 +110,101 @@ public class DatabaseService
             .ToDictionary(x => x.Role, x => x.Percentage);
 
         return rolePercentages;
+    }
+    
+    public async Task<List<Match>> GetAllMatchesAsync()
+    {
+        return await _context.Matches.ToListAsync();
+    }
+
+    public async Task<string> GetItemNameByIdAsync(int itemId)
+    {
+        var item = await _context.Items.FindAsync(itemId);
+        return item?.Name ?? "Unknown";
+    }
+    
+     public async Task<Dictionary<string, Dictionary<int, string>>> GetMostPopularItemsBySlotAsync()
+    {
+        var matches = await GetAllMatchesAsync();
+        var roleBuilds = new Dictionary<string, List<string>>();
+
+        // Grupujemy buildy według roli
+        foreach (var match in matches)
+        {
+            if (!roleBuilds.ContainsKey(match.Role))
+            {
+                roleBuilds[match.Role] = new List<string>();
+            }
+
+            roleBuilds[match.Role].Add(match.Build);
+        }
+
+        var mostPopularItems = new Dictionary<string, Dictionary<int, string>>();
+
+        foreach (var roleBuild in roleBuilds)
+        {
+            var role = roleBuild.Key;
+            var builds = roleBuild.Value;
+
+            var slotItemCounts = new Dictionary<int, Dictionary<string, int>>();
+
+            // Inicjalizacja słowników dla każdego slotu
+            for (int i = 1; i <= 6; i++)
+            {
+                slotItemCounts[i] = new Dictionary<string, int>();
+            }
+
+            foreach (var build in builds)
+            {
+                var items = ParseBuild(build);
+
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var slot = i + 1;
+                    var item = items[i];
+
+                    if (slot > 6)
+                    {
+                        Console.WriteLine($"Invalid slot detected: {slot}. Build: {build}");
+                        continue;
+                    }
+
+                    if (!slotItemCounts[slot].ContainsKey(item))
+                    {
+                        slotItemCounts[slot][item] = 0;
+                    }
+
+                    slotItemCounts[slot][item]++;
+                }
+            }
+
+            // Zbieranie najpopularniejszych przedmiotów dla roli
+            var rolePopularItems = new Dictionary<int, string>();
+
+            for (int slot = 1; slot <= 6; slot++)
+            {
+                if (slotItemCounts.ContainsKey(slot))
+                {
+                    var itemCounts = slotItemCounts[slot];
+                    var mostPopularItem = itemCounts.OrderByDescending(x => x.Value).FirstOrDefault().Key;
+                    rolePopularItems[slot] = mostPopularItem;
+                }
+                else
+                {
+                    rolePopularItems[slot] = "None";
+                }
+            }
+
+            mostPopularItems[role] = rolePopularItems;
+        }
+
+        return mostPopularItems;
+    }
+
+    public List<string> ParseBuild(string build)
+    {
+        // Opcjonalne: Zdebuguj przedmioty
+        var items = build.Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        return items;
     }
 }

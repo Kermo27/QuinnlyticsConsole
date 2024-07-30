@@ -33,6 +33,5 @@ public class Match
     public int? PushPings { get; set; } // Green minion
     public int GoldEarned { get; set; }
     public int GoldSpent { get; set; }
-    
-    
+    public string Build { get; set; }
 }

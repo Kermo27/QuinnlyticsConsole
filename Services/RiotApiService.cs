@@ -1,6 +1,7 @@
 ﻿using Camille.Enums;
 using Newtonsoft.Json;
 using Camille.RiotGames;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
 using QuinnlyticsConsole.Models;
 
@@ -53,18 +54,67 @@ public class RiotApiService
         return runes.SelectMany(r => r.Slots.SelectMany(s => s.Runes))
             .ToDictionary(r => r.Id);
     }
-    
-    public async Task<Match> GetMatchAsync(string matchId, Dictionary<int, Rune> runeDictionary, string playerUniqueId)
+
+    public async Task<Match> GetMatchWithBuildAsync(string matchId, Dictionary<int, Rune> runeDictionary, string playerUniqueId)
     {
-        var match = await _riotGamesApi.MatchV5().GetMatchAsync(Region, matchId);
+        using var dbContext = new AppDbContext();
+        
+        var matchTask = _riotGamesApi.MatchV5().GetMatchAsync(Region, matchId);
+        var timelineTask = _riotGamesApi.MatchV5().GetTimelineAsync(Region, matchId);
+
+        await Task.WhenAll(matchTask, timelineTask);
+
+        var match = matchTask.Result;
+        var timeline = timelineTask.Result;
+        
+        var participant = match.Info.Participants.FirstOrDefault(p => p.Puuid == playerUniqueId);
+        if (participant == null)
+        {
+            throw new ArgumentException("Player not found in the match.");
+        }
+
+        var participantId = participant.ParticipantId;
+        
+        var purchases = timeline.Info.Frames
+            .SelectMany(frame => frame.Events)
+            .Where(e => e.Type == "ITEM_PURCHASED" && e.ParticipantId == participantId)
+            .OrderBy(e => e.Timestamp)
+            .Select(e => e.ItemId)
+            .Where(id => id.HasValue)
+            .Select(id => id.Value)
+            .ToList();
 
         var player = match.Info.Participants.FirstOrDefault(p => p.Puuid == playerUniqueId);
         if (player == null)
         {
             throw new ArgumentException("Player not found in the match.");
         }
+
+        var endGameItems = new List<int>
+        {
+            player.Item0, player.Item1, player.Item2, player.Item3, player.Item4, player.Item5
+        };
         
-        var opponent = match.Info.Participants.FirstOrDefault(op => op.TeamPosition == player.TeamPosition && op.TeamId != player.TeamId);
+        var itemIds = purchases.Concat(endGameItems).Distinct().ToList();
+        var items = await dbContext.Items
+            .Where(i => itemIds.Contains(i.Id))
+            .ToDictionaryAsync(i => i.Id);
+
+        var build = purchases
+            .Where(endGameItems.Contains)
+            .Where(items.ContainsKey)
+            .Select(itemId => items[itemId].Name)
+            .Take(6)
+            .ToList();
+        
+        var opponent = match.Info.Participants
+            .FirstOrDefault(op => op.TeamPosition == player.TeamPosition && op.TeamId != player.TeamId)
+            ?.ChampionName ?? "Unknown";
+        
+        var runeDetails = player.Perks.Styles
+            .SelectMany(style => style.Selections)
+            .Select(selection => runeDictionary.TryGetValue(selection.Perk, out var rune) ? rune.Name : $"Rune ID: {selection.Perk}")
+            .ToArray();
 
         var matchEntity = new Match
         {
@@ -72,19 +122,18 @@ public class RiotApiService
             MatchId = matchId,
             Role = player.TeamPosition == "UTILITY" ? "SUPPORT" : player.TeamPosition,
             Win = player.Win,
-            Opponent = opponent?.ChampionName ?? "Unknown",
+            Opponent = opponent,
             SummonerSpells = $"Summoner1: {player.Summoner1Id}, Summoner2: {player.Summoner2Id}",
-            Champion = player.ChampionName, 
+            Champion = player.ChampionName,
             GameVersion = string.Join(".", match.Info.GameVersion.Split('.').Take(2)),
             GameDuration = match.Info.GameDuration,
-            RuneDetails = string.Join(", ", player.Perks.Styles.SelectMany(style => style.Selections).Select(
-                selection =>
-                    runeDictionary.TryGetValue(selection.Perk, out var rune) ? rune.Name : $"Rune ID: {selection.Perk}")),
+            RuneDetails = string.Join(", ", runeDetails),
             Kills = player.Kills,
             Deaths = player.Deaths,
             Assists = player.Assists,
             TotalMinionsKilled = player.TotalMinionsKilled + player.NeutralMinionsKilled,
-            MinionsPerMinutes = (player.TotalMinionsKilled + player.NeutralMinionsKilled) / (match.Info.GameDuration / 60f),
+            MinionsPerMinutes = (player.TotalMinionsKilled + player.NeutralMinionsKilled) /
+                                (match.Info.GameDuration / 60f),
             QSkillUsage = player.Spell1Casts,
             WSkillUsage = player.Spell2Casts,
             ESkillUsage = player.Spell3Casts,
@@ -97,10 +146,12 @@ public class RiotApiService
             GetBackPings = player.GetBackPings,
             NeedVisionPings = player.NeedVisionPings,
             OnMyWayPings = player.OnMyWayPings,
-            PushPings = player.OnMyWayPings,
+            PushPings = player.PushPings,
             GoldEarned = player.GoldEarned,
-            GoldSpent = player.GoldSpent
+            GoldSpent = player.GoldSpent,
+            Build = string.Join(", ", build)
         };
+
         return matchEntity;
     }
     
@@ -110,7 +161,7 @@ public class RiotApiService
         return summoner.Puuid;
     }
 
-    public async Task<List<string>> GetMatchIdsByPuuidAsync(string puuid, int count = 50)
+    public async Task<List<string>> GetMatchIdsByPuuidAsync(string puuid, int count = 10)
     {
         var matchIds = await _riotGamesApi.MatchV5().GetMatchIdsByPUUIDAsync(Region, puuid, count: count);
         var draftMatchIds = new List<string>();
@@ -127,7 +178,7 @@ public class RiotApiService
         return draftMatchIds;
     }
 
-    public async Task FetchAndSaveItemsAsync(DatabaseService databaseService, HashSet<string> exceptions)
+    public async Task FetchAndSaveItemsAsync(DatabaseService dbService, HashSet<int> exceptions, HashSet<int> excludedItems)
     {
         var itemUrl = $"https://ddragon.leagueoflegends.com/cdn/{_currentGameVersion}/data/en_US/item.json";
         using var httpClient = new HttpClient();
@@ -138,46 +189,44 @@ public class RiotApiService
 
         foreach (var item in itemData["data"].Children<JProperty>())
         {
-            var itemId = item.Name;
+            var itemId = int.Parse(item.Name);
             var itemDetails = item.Value;
+            var itemName = (string)itemDetails["name"];
+            var intoArray = itemDetails["into"] as JArray;
 
-            if (itemData != null)
+            var hasIntoItems = intoArray != null && intoArray.Count > 0;
+            var isExcluded = excludedItems.Contains(itemId);
+            var isException = exceptions.Contains(itemId);
+
+            if ((!hasIntoItems || isException) && !isExcluded)
             {
-                var itemName = (string)itemDetails["name"];
-                var intoArray = itemDetails["into"] as JArray;
-
-                bool shouldExclude = intoArray != null && intoArray.Count > 0 && !exceptions.Contains(itemId);
-
-                if (!shouldExclude)
+                var existingItem = await dbService.GetItemByIdAsync(itemId);
+                if (existingItem != null)
                 {
-                    var existingItem = await databaseService.GetItemByIdAsync(itemId);
-                    if (existingItem != null)
+                    existingItem.Id = itemId;
+                    existingItem.Name = itemName;
+                    await dbService.UpdateItemsAsync(existingItem);
+                }
+                else
+                {
+                    itemsToSave.Add(new Item
                     {
-                        existingItem.Name = itemName;
-                        await databaseService.UpdateItemsAsync(existingItem);
-                    }
-                    else
-                    {
-                        itemsToSave.Add(new Item
-                        {
-                            Id = itemId,
-                            Name = itemName
-                        });
-                    }
+                        Id = itemId,
+                        Name = itemName
+                    });
                 }
             }
         }
 
         if (itemsToSave.Any())
         {
-            await databaseService.SaveItemsAsync(itemsToSave);
+            await dbService.SaveItemsAsync(itemsToSave);
         }
     }
 
-    public async Task RefreshItemsIfVersionChangedAsync(DatabaseService dbService, HashSet<string> excludeItems)
+    public async Task RefreshItemsIfVersionChangedAsync(DatabaseService dbService, HashSet<int> exceptions, HashSet<int> excludedItems)
     {
         var currentVersion = await GetCurrentGameVersionLongAsync();
-
         var gameVersionInDb = await dbService.GetCurrentGameVersionAsync();
 
         if (gameVersionInDb == null || gameVersionInDb.Version != currentVersion)
@@ -193,7 +242,7 @@ public class RiotApiService
                 await dbService.UpdateGameVersionAsync(gameVersionInDb);
             }
 
-            await FetchAndSaveItemsAsync(dbService, excludeItems);
+            await FetchAndSaveItemsAsync(dbService, exceptions, excludedItems);
         }
     }
 }
