@@ -112,9 +112,11 @@ public class DatabaseService
         return rolePercentages;
     }
     
-    public async Task<List<Match>> GetAllMatchesAsync()
+    public async Task<List<Match>> GetAllMatchesAsync(string gameVersion)
     {
-        return await _context.Matches.ToListAsync();
+        return await _context.Matches
+            .Where(m => m.GameVersion == gameVersion)
+            .ToListAsync();
     }
 
     public async Task<string> GetItemNameByIdAsync(int itemId)
@@ -123,9 +125,9 @@ public class DatabaseService
         return item?.Name ?? "Unknown";
     }
     
-     public async Task<Dictionary<string, Dictionary<int, string>>> GetMostPopularItemsBySlotAsync()
+    public async Task<Dictionary<string, Dictionary<int, string>>> GetMostPopularItemsBySlotAsync(string gameVersion)
     {
-        var matches = await GetAllMatchesAsync();
+        var matches = await GetAllMatchesAsync(gameVersion);
         var roleBuilds = new Dictionary<string, List<string>>();
 
         // Grupujemy buildy według roli

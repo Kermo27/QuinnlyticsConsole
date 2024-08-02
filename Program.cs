@@ -185,9 +185,11 @@ Console.WriteLine();
 
 await DisplayMostPopularItemsBySlotAsync();
 
+Console.ReadLine();
+
 async Task DisplayMostPopularItemsBySlotAsync()
 {
-    var mostPopularItems = await databaseService.GetMostPopularItemsBySlotAsync();
+    var mostPopularItems = await databaseService.GetMostPopularItemsBySlotAsync(latestVersion);
 
     foreach (var role in mostPopularItems.Keys)
     {
