@@ -3,6 +3,7 @@
 public class Match
 {
     public int Id { get; set; }
+    public string PlayerUniqueId { get; set; }
     public long MatchDate { get; set; }
     public string MatchId { get; set; }
     public string Role { get; set; }

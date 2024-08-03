@@ -102,6 +102,10 @@ try
 catch (Exception ex)
 {
     Console.WriteLine("An error occurred while refreshing item data: " + ex.Message);
+    if (ex.InnerException != null)
+    {
+        Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+    }
 }
 
 List<string> matchIds;

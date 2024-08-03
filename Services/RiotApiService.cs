@@ -119,6 +119,7 @@ public class RiotApiService
         var matchEntity = new Match
         {
             MatchDate = match.Info.GameCreation,
+            PlayerUniqueId = playerUniqueId,
             MatchId = matchId,
             Role = player.TeamPosition == "UTILITY" ? "SUPPORT" : player.TeamPosition,
             Win = player.Win,

@@ -5,65 +5,65 @@ namespace QuinnlyticsConsole.Services;
 
 public class DatabaseService
 {
-    private readonly AppDbContext _context;
+    private readonly AppDbContext _dbContext;
 
     public DatabaseService()
     {
-        _context = new AppDbContext();
-        _context.Database.EnsureCreated();
+        _dbContext = new AppDbContext();
+        _dbContext.Database.EnsureCreated();
     }
 
     public async Task<GameVersion> GetCurrentGameVersionAsync()
     {
-        return await _context.GameVersions.FirstOrDefaultAsync();
+        return await _dbContext.GameVersions.FirstOrDefaultAsync();
     }
     
     public async Task SaveOrUpdateGameVersionAsync(GameVersion gameVersion)
     {
-        _context.GameVersions.Add(gameVersion);
-        await _context.SaveChangesAsync();
+        _dbContext.GameVersions.Add(gameVersion);
+        await _dbContext.SaveChangesAsync();
     }
 
     public async Task UpdateGameVersionAsync(GameVersion gameVersion)
     {
-        _context.GameVersions.Update(gameVersion);
-        await _context.SaveChangesAsync();
+        _dbContext.GameVersions.Update(gameVersion);
+        await _dbContext.SaveChangesAsync();
     }
 
     public async Task SaveMatchAsync(Match match)
     {
-        _context.Matches.Add(match);
-        await _context.SaveChangesAsync();
+        _dbContext.Matches.Add(match);
+        await _dbContext.SaveChangesAsync();
     }
 
     public async Task SaveItemsAsync(IEnumerable<Item> items)
     {
-        var existingItems = _context.Items.ToList();
+        var existingItems = _dbContext.Items.ToList();
         var newItems = items.Where(i => !existingItems.Any(e => e.Id == i.Id)).ToList();
         
-        _context.Items.AddRange(newItems);
-        await _context.SaveChangesAsync();
+        _dbContext.Items.AddRange(newItems);
+        await _dbContext.SaveChangesAsync();
     }
 
     public Task UpdateItemsAsync(Item item)
     {
-        _context.Update(item);
+        _dbContext.Update(item);
         return Task.CompletedTask;
     }
     
     public async Task<Item> GetItemByIdAsync(int id)
     {
-        return await _context.Items.FirstOrDefaultAsync(i => i.Id == id);
+        return await _dbContext.Items.FirstOrDefaultAsync(i => i.Id == id);
     }
 
     public async Task<bool> IsMatchInDatabaseAsync(string matchId)
     {
-        return await _context.Matches.AnyAsync(m => m.MatchId == matchId);
+        return await _dbContext.Matches.AnyAsync(m => m.MatchId == matchId);
     }
 
     public async Task<List<RoleStats>> GetRoleStatsAsync(string gameVersion)
     {
-        var roleStats = await _context.Matches
+        var roleStats = await _dbContext.Matches
             .Where(m => m.GameVersion.StartsWith(gameVersion))
             .GroupBy(m => m.Role)
             .Select(g => new RoleStats
@@ -94,7 +94,7 @@ public class DatabaseService
 
     public async Task<Dictionary<string, double>> GetRolePercentageAsync(string gameVersion)
     {
-        var matches = await _context.Matches
+        var matches = await _dbContext.Matches
             .Where(m => m.GameVersion.StartsWith(gameVersion))
             .ToListAsync();
 
@@ -114,14 +114,14 @@ public class DatabaseService
     
     public async Task<List<Match>> GetAllMatchesAsync(string gameVersion)
     {
-        return await _context.Matches
+        return await _dbContext.Matches
             .Where(m => m.GameVersion == gameVersion)
             .ToListAsync();
     }
 
     public async Task<string> GetItemNameByIdAsync(int itemId)
     {
-        var item = await _context.Items.FindAsync(itemId);
+        var item = await _dbContext.Items.FindAsync(itemId);
         return item?.Name ?? "Unknown";
     }
     
